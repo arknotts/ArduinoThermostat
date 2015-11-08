@@ -17,14 +17,15 @@ LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 const int tempUpPin = 5;
 const int tempDownPin = 4;
 const int sensorPin = A0;
-const int ledPin = 6;
-//const long shortCycleDelay = 600000; //minimum 10 minutes between runs
-//const long maxRunTime = 900000; //max 15 minutes per run
-//const long minRunTime = 60000; //min 1 minute run time
-const long shortCycleDelay = 60000; //minimum 10 minutes between runs
-const long maxRunTime = 5000; //max 15 minutes per run
-const long minRunTime = 2000; //min 1 minute run time
-RunningAverage myRA(10);
+const int furnaceTriggerPin = 2;
+const long shortCycleDelay = 600000; //minimum 10 minutes between runs
+const long maxRunTime = 900000; //max 15 minutes per run
+const long minRunTime = 60000; //min 1 minute run time
+//const long shortCycleDelay = 10000; //minimum 10 minutes between runs
+//const long maxRunTime = 10000; //max 15 minutes per run
+//const long minRunTime = 6000; //min 1 minute run time
+const int RUNNING_AVG_LENGTH = 30;
+RunningAverage myRA(RUNNING_AVG_LENGTH);
 
 // variable to hold the value of the switchPin
 int tempUpSwitchState = 0;
@@ -40,11 +41,35 @@ unsigned long dontStopUntilTime;
 unsigned long dontRunAgainUntilTime;
 bool isRunning;
 
+int readVcc()
+// Calculate current Vcc in mV from the 1.1V reference voltage
+{
+	long result;
+
+	// Read 1.1V reference against AVcc
+	ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+	delay(2); // Wait for Vref to settle
+	ADCSRA |= _BV(ADSC); // Convert
+	while (bit_is_set(ADCSRA, ADSC));
+	result = ADCL;
+	result |= ADCH << 8;
+	result = 1126400L / result; // Back-calculate AVcc in mV
+
+	return(result);
+}
 
 float currTemp() {
+	/*int sensorVal = analogRead(sensorPin);
+	float voltage = (sensorVal / 1024.0) * readVcc();
+	float celcius = 
+	return (voltage - .5) * 100 * 1.8 + 32;*/
+
+
 	int sensorVal = analogRead(sensorPin);
-	float voltage = (sensorVal / 1024.0) * 4.4;
-	return (voltage - .5) * 100 * 1.8 + 32;
+	float millivolts = (sensorVal / 1024.0) * readVcc();
+	float celsius = millivolts / 10 - 50;
+	float fahrenheit = celsius * 1.8 + 32;
+	return fahrenheit;
 }
 
 void printTempsToLcd(float currTemp, float avgTemp) {
@@ -74,7 +99,8 @@ void setup() {
 	// set up the switch pin as an input
 	pinMode(tempUpPin, INPUT);
 	pinMode(tempDownPin, INPUT);
-	pinMode(ledPin, OUTPUT);
+	pinMode(furnaceTriggerPin, OUTPUT);
+	digitalWrite(furnaceTriggerPin, LOW);
 
 	// Print a message to the LCD.
 	lcd.setCursor(0, 0);
@@ -82,7 +108,7 @@ void setup() {
 	lcd.setCursor(0, 1);
 	lcd.print("Target: ");
 
-	tempTarget = 70;
+	tempTarget = 65;
 	myRA.clear();
 
 	lcd.setCursor(8, 1);
@@ -95,16 +121,18 @@ void setup() {
 }
 
 void startFurnace() {
-	serialLog("Starting");
-	if (!isRunning) {
-		serialLog("Not running!");
-		if (millis() >= dontRunAgainUntilTime) {
-			serialLog("millis > dontRunAgainTime");
-			digitalWrite(ledPin, HIGH);
-			//TODO turn on furnace
-			isRunning = true;
-			dontStopUntilTime = millis() + minRunTime;
-			forceShutoffTime = millis() + maxRunTime;
+	if (myRA.getCount() >= RUNNING_AVG_LENGTH) { //don't start until our running average is full (could be inaccurate otherwise)
+		serialLog("Starting");
+		if (!isRunning) {
+			serialLog("Not running!");
+			if (millis() >= dontRunAgainUntilTime) {
+				serialLog("millis > dontRunAgainTime");
+				//turn on furnace
+				digitalWrite(furnaceTriggerPin, HIGH); //relay is triggered on low signal
+				isRunning = true;
+				dontStopUntilTime = millis() + minRunTime;
+				forceShutoffTime = millis() + maxRunTime;
+			}
 		}
 	}
 }
@@ -114,8 +142,8 @@ void stopFurnace() {
 	if (isRunning) {
 		if (millis() > dontStopUntilTime) {
 			serialLog("Running");
-			digitalWrite(ledPin, LOW);
-			//TODO stop furnace
+			//stop furnace
+			digitalWrite(furnaceTriggerPin, LOW);
 			isRunning = false;
 			dontRunAgainUntilTime = millis() + shortCycleDelay;
 		}
@@ -133,28 +161,27 @@ void send_float(float arg)
 
 void loop() {
 
-	if (isRunning) {
-		digitalWrite(ledPin, HIGH);
-	}
-
 	time = millis();
 
-	if (time - prevTime > 1000) {
-		
+	if (time - prevTime > 500) {
+
 		float fCurrTemp = currTemp();
 		myRA.addValue(fCurrTemp);
 		float currAvg = myRA.getAverage();
+		Serial.println(myRA.getCount());
 
 		printTempsToLcd(fCurrTemp, currAvg);
 
-		if (currAvg < tempTarget - 1.5) {
+		if (currAvg < tempTarget - 1) {
 			if (millis() > forceShutoffTime) {
 				//force stop if it's been on for too long (something might be wrong)
+				serialLog("Stopping based on force shutoff time");
 				stopFurnace();
 			}
 			startFurnace();
 		}
-		else {
+		else if(currAvg >= tempTarget) { //greater than or equal to tempTarget
+			serialLog("Stopping because temp has been reached");
 			stopFurnace();
 		}
 

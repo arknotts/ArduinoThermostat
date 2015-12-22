@@ -1,0 +1,16 @@
+const int sensorPin = A0;
+const int furnaceTriggerPin = 5;
+const long shortCycleDelay = 420000; //minimum 7 minutes between runs
+const long maxRunTime = 900000; //max 15 minutes per run
+const long minRunTime = 60000; //min 1 minute run time
+const int RUNNING_AVG_LENGTH = 10;
+const int TEMP_READ_DELAY = 500;
+const long TEMP_LOG_PERIOD = 5000; //5 mins
+const int WIFI_RX_PIN = 2;
+const int WIFI_TX_PIN = 3;
+const char* WIFI_SSID = "[YOUR SSID]";
+const char* WIFI_PASSWORD = "[YOUR PASSWORD]";
+const char* WIFI_LOGGING_IP = "[YOUR LOGGING IP]";
+const char* WIFI_LOGGING_PORT = "80";
+const char* WIFI_AUTHKEY = "[YOUR AUTH KEY]";
+const unsigned long WIFI_CHECK_PERIOD = 10000; //check wifi status every 10 seconds

@@ -1,5 +1,6 @@
 const int sensorPin = A0;
 const int furnaceTriggerPin = 5;
+const int fanTriggerPin = 6;
 const long shortCycleDelay = 420000; //minimum 7 minutes between runs
 const long maxRunTime = 900000; //max 15 minutes per run
 const long minRunTime = 60000; //min 1 minute run time

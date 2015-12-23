@@ -76,6 +76,14 @@ bool isRunning;
 //	return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 //}
 
+void setTempTarget(unsigned char temp)
+{
+	if (temp > 55 && temp < 75)
+	{
+		tempTarget = temp;
+	}
+}
+
 //String waitMultiple(String target1, String target2, uint32_t timeout = 1000)
 //{
 //	String data;
@@ -133,13 +141,12 @@ void checkWifi()
 		else
 		{
 			wifiIp = new char[0];
-			//Serial.print("NOT CONNECTED: ");
-			//Serial.println(returnChar);
 			wifiConnected = false;
 		}
 	}
 
 	printWifiStatus(wifiIp);
+	free(wifiIp);
 }
 
 void setupWifi()
@@ -175,27 +182,21 @@ void setupWifi()
 //	Serial.println();
 //}
 
-bool wifiSend(const char* httpCommand)
+bool wifiSend(const char* url, const char* postData)
 {
-	esp8266.println("sk=net.createConnection(net.TCP, 0)");
-	esp8266.find('>');
-	//readAll(false);
+	/*Serial.print("httpPost(\"");
+	Serial.print(url);
+	Serial.print("\", \"");
+	Serial.print(postData);
+	Serial.println("\")");*/
 
-	esp8266.println("sk:on(\"receive\", function(sck, c) print(c) end )");
-	esp8266.find('>');
-	//readAll(false);
 
-	esp8266.print("sk:connect(");
-	esp8266.print(WIFI_LOGGING_PORT);
-	esp8266.print(", \"");
-	esp8266.print(WIFI_LOGGING_IP);
+	esp8266.print("httpPost(\"");
+	esp8266.print(url);
+	esp8266.print("\", \"");
+	esp8266.print(postData);
 	esp8266.println("\")");
 	esp8266.find('>');
-	//readAll(false);
-
-	esp8266.print("sk:send(\"");
-	esp8266.print(httpCommand);
-	esp8266.println("\")");
 
 	return true;
 }
@@ -203,44 +204,24 @@ bool wifiSend(const char* httpCommand)
 //TODO optimize these two
 bool wifiLogAction(char* action, char* value)
 {
-	int payloadLen = strlen(action) + strlen(value) + strlen(WIFI_AUTHKEY) + 15;
-	char* payload = new char[payloadLen];
+	String payload = "a=";
+	payload = payload + action;
+	payload = payload + "&v=";
+	payload = payload + value;
+	payload = payload + "&authKey=";
+	payload = payload + WIFI_AUTHKEY;
 
-	strcat(payload, "a=");
-	strcat(payload, action);
-	strcat(payload, "&v=");
-	strcat(payload, value);
-	strcat(payload, "&authKey=");
-	strcat(payload, WIFI_AUTHKEY);
-
-	/*String payload = "a=";
-	payload += action;
-	payload += "&v=";
-	payload += value;
-	payload += "&authKey=";
-	payload += WIFI_AUTHKEY;*/
-
-	String post = "POST /api/thermostat_log.php HTTP/1.0\\r\\nContent-Type: application/x-www-form-urlencoded\\r\\nContent-Length: ";
-	post += strlen(payload);
-	post += "\\r\\n\\r\\n";
-	post += payload;
-
-	wifiSend(post.c_str());
+	wifiSend("/api/thermostat_log.php", payload.c_str());
 }
 
 bool logTemperature()
 {
 	String payload = "t=";
-	payload += tempRunningAvg.getAverage();
-	payload += "&l=thermostat&authKey=";
-	payload += WIFI_AUTHKEY;
+	payload = payload + tempRunningAvg.getAverage();
+	payload = payload + "&l=thermostat&authKey=";
+	payload = payload + WIFI_AUTHKEY;
 
-	String post = "POST /api/temp_log.php HTTP/1.0\\r\\nContent-Type: application/x-www-form-urlencoded\\r\\nContent-Length: ";
-	post += payload.length();
-	post += "\\r\\n\\r\\n";
-	post += payload;
-
-	wifiSend(post.c_str());
+	wifiSend("/api/temp_log.php", payload.c_str());
 }
 
 int readVcc()
@@ -319,7 +300,7 @@ void printTemplate() {
 
 void printWifiStatus(char* ip)
 {
-	tft.fillRect(0, 0, 400, 20, ILI9341_BLACK);
+	tft.fillRect(0, 0, 250, 20, ILI9341_BLACK);
 
 	//wifi status
 	tft.setCursor(0, 0);
@@ -368,6 +349,16 @@ void stopFurnace() {
 	}
 }
 
+void startFan()
+{
+	digitalWrite(fanTriggerPin, LOW); //relay is triggered on low signal
+}
+
+void stopFan()
+{
+	digitalWrite(fanTriggerPin, HIGH); //relay is triggered on low signal
+}
+
 void checkInputs()
 {
 	// See if there's any  touch data for us
@@ -385,17 +376,25 @@ void checkInputs()
 
 		if (x > TEMP_UP_X && x < TEMP_UP_X + TEMP_BUTTON_WIDTH && y > TEMP_UP_Y && y < TEMP_UP_Y + TEMP_BUTTON_HEIGHT)
 		{
-			tempTarget += 1;
+			setTempTarget(tempTarget + 1);
 			printTargetToLcd();
 		}
 		else if (x > TEMP_DOWN_X && x < TEMP_DOWN_X + TEMP_BUTTON_WIDTH && y > TEMP_DOWN_Y && y < TEMP_DOWN_Y + TEMP_BUTTON_HEIGHT)
 		{
-			tempTarget -= 1;
+			setTempTarget(tempTarget - 1);
 			printTargetToLcd();
 		}
 		else if (x > FAN_BUTTON_X && x < FAN_BUTTON_X + FAN_BUTTON_WIDTH && y > FAN_BUTTON_Y && y < FAN_BUTTON_Y + FAN_BUTTON_HEIGHT)
 		{
 			forceFanOn = !forceFanOn;
+			if (forceFanOn)
+			{
+				startFan();
+			}
+			else
+			{
+				stopFan();
+			}
 			printFanButton();
 		}
 
@@ -438,6 +437,8 @@ void setup() {
 	// set up the inputs/outputs
 	pinMode(furnaceTriggerPin, OUTPUT);
 	digitalWrite(furnaceTriggerPin, HIGH);
+	pinMode(fanTriggerPin, OUTPUT);
+	digitalWrite(fanTriggerPin, HIGH);
 
 	//initialize variables
 	tempTarget = 65;
@@ -540,8 +541,6 @@ void loop() {
 		lastCheckWifiTime = time;
 	}
 
-	//Serial.println(time-lastTempLogTime);
-	//Serial.println(TEMP_LOG_PERIOD);
 	if (time - lastTempLogTime > TEMP_LOG_PERIOD)
 	{
 		logTemperature();

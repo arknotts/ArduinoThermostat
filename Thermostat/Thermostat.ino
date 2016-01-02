@@ -8,6 +8,8 @@
 
 // include the library code:
 #include "Wire.h"
+#include "OneWire.h"
+#include "DallasTemperature.h"
 #include "SPI.h"
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
@@ -44,6 +46,16 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 #define FAN_BUTTON_HEIGHT 50
 
 #define TOUCH_DELAY 120
+
+///////// ds18b20 /////////
+/*-----( Declare Constants )-----*/
+#define ONE_WIRE_BUS 7 /*-(Connect to Pin 2 )-*/
+/*-----( Declare objects )-----*/
+/* Set up a oneWire instance to communicate with any OneWire device*/
+OneWire ourWire(ONE_WIRE_BUS);
+/* Tell Dallas Temperature Library to use oneWire Library */
+DallasTemperature sensors(&ourWire);
+///////////////////////////
 
 int sw;
 int sh;
@@ -182,46 +194,36 @@ void setupWifi()
 //	Serial.println();
 //}
 
-bool wifiSend(const char* url, const char* postData)
+bool publishEvent(const char* topic, const char* value)
 {
-	/*Serial.print("httpPost(\"");
-	Serial.print(url);
-	Serial.print("\", \"");
-	Serial.print(postData);
-	Serial.println("\")");*/
-
-
-	esp8266.print("httpPost(\"");
-	esp8266.print(url);
+	esp8266.print("publish(\"");
+	esp8266.print(topic);
 	esp8266.print("\", \"");
-	esp8266.print(postData);
+	esp8266.print(value);
 	esp8266.println("\")");
 	esp8266.find('>');
 
 	return true;
 }
 
-//TODO optimize these two
-bool wifiLogAction(char* action, char* value)
+bool logFurnaceEvent(char* value)
 {
-	String payload = "a=";
+	/*String payload = "a=";
 	payload = payload + action;
 	payload = payload + "&v=";
 	payload = payload + value;
 	payload = payload + "&authKey=";
-	payload = payload + WIFI_AUTHKEY;
+	payload = payload + WIFI_AUTHKEY;*/
 
-	wifiSend("/api/thermostat_log.php", payload.c_str());
+	publishEvent("thermostat/furnace", value);
 }
 
 bool logTemperature()
 {
-	String payload = "t=";
-	payload = payload + tempRunningAvg.getAverage();
-	payload = payload + "&l=thermostat&authKey=";
-	payload = payload + WIFI_AUTHKEY;
+	String payload = "";
+	payload += tempRunningAvg.getAverage();
 
-	wifiSend("/api/temp_log.php", payload.c_str());
+	publishEvent("sensors/temperature/thermostat", payload.c_str());
 }
 
 int readVcc()
@@ -242,11 +244,14 @@ int readVcc()
 }
 
 float currTemp() {
-	int sensorVal = analogRead(sensorPin);
+	/*int sensorVal = analogRead(sensorPin);
 	float millivolts = (sensorVal / 1024.0) * readVcc();
 	float celsius = millivolts / 10 - 50;
 	float fahrenheit = celsius * 1.8 + 32;
-	return fahrenheit - 5;
+	return fahrenheit;*/
+
+	sensors.requestTemperatures(); // Send the command to get temperatures
+	return sensors.getTempFByIndex(0);
 }
 
 void printTargetToLcd() {
@@ -333,7 +338,7 @@ void startFurnace() {
 		isRunning = true;
 		dontStopUntilTime = millis() + minRunTime;
 		forceShutoffTime = millis() + maxRunTime;
-		wifiLogAction("Furnace", "On");
+		logFurnaceEvent("On");
 	}
 }
 
@@ -345,7 +350,7 @@ void stopFurnace() {
 		digitalWrite(furnaceTriggerPin, HIGH);
 		isRunning = false;
 		dontRunAgainUntilTime = millis() + shortCycleDelay;
-		wifiLogAction("Furnace", "Off");
+		logFurnaceEvent("Off");
 	}
 }
 
@@ -410,6 +415,9 @@ void checkInputs()
 void setup() {
 	Serial.begin(115200);
 	esp8266.begin(9600);
+
+	sensors.begin();
+
 
 	// init the tft display
 	tft.begin();

@@ -67,7 +67,7 @@ SoftwareSerial esp8266(WIFI_RX_PIN, WIFI_TX_PIN);
 unsigned char tempTarget = 0;
 bool forceFanOn = false;
 bool wifiConnected = false;
-bool readingCommand = false;
+bool serialRecvDone = false;
 unsigned long time;
 unsigned long prevTime;
 unsigned long forceShutoffTime;
@@ -122,7 +122,6 @@ void checkWifi()
 	//espReadAll(false); //clear any buffered chars and start fresh
 	esp8266.println("print(wifi.sta.status())");
 	delay(500);
-	char* wifiIp;
 	if (esp8266.available() > 0)
 	{
 		returnChar = esp8266.read();
@@ -130,35 +129,14 @@ void checkWifi()
 		{
 			
 			wifiConnected = true;
-
-			esp8266.find('>');
-
-			wifiIp = new char[16];
-			esp8266.println("print(wifi.sta.getip())");
-			esp8266.find('1'); //the '1' in 192.168....
-			delay(50);
-			char returnChar2; int cntr = 1;
-			
-			wifiIp[0] = '1';
-			while (esp8266.available() > 0 && cntr < 15)
-			{
-				returnChar2 = esp8266.read();
-				if (returnChar2 == '\t') break;
-				wifiIp[cntr] = returnChar2;
-				cntr++;
-				wifiIp[cntr] = '\0';
-				delay(50);
-			}
 		}
 		else
 		{
-			wifiIp = new char[0];
 			wifiConnected = false;
 		}
 	}
 
-	printWifiStatus(wifiIp);
-	free(wifiIp);
+	printWifiStatus();
 }
 
 void setupWifi()
@@ -303,7 +281,7 @@ void printTemplate() {
 	tft.print("Temperature:");
 }
 
-void printWifiStatus(char* ip)
+void printWifiStatus()
 {
 	tft.fillRect(0, 0, 250, 20, ILI9341_BLACK);
 
@@ -315,11 +293,6 @@ void printWifiStatus(char* ip)
 	{
 		tft.setTextColor(ILI9341_WHITE);
 		tft.print("WIFI: CONNECTED");
-		tft.setCursor(100, 0);
-		tft.setTextColor(ILI9341_GREENYELLOW);
-		tft.print("(");
-		tft.print(ip);
-		tft.print(")");
 	}
 	else
 	{
@@ -470,37 +443,40 @@ void loop() {
 	while (esp8266.available() > 0)
 	{
 		charRead = esp8266.read();
+		Serial.print(charRead);
 
 		if (charRead == '|')
 		{
-			if (readingCommand)
-			{
-				//end of command
-				if (strncmp(espSerialRecvBuffer, "|settemp:", 9) == 0)
-				{
-					//set temperature
-					int numFirstChar = espSerialRecvBuffer[9] - '0';
-					int numSecondChar = espSerialRecvBuffer[10] - '0';
-					int newTemperature = 10 * numFirstChar + numSecondChar;
-					tempTarget = newTemperature;
-					printTargetToLcd();
-
-					espSerialRecvBufferIdx = 0;
-					readingCommand = false;
-				}
-			}
-			else
-			{
-				espSerialRecvBufferIdx = 0;
-				readingCommand = true;
-			}
+			espSerialRecvBufferIdx = 0;
+			serialRecvDone = false;
 		}
-
-		if (espSerialRecvBufferIdx < ESP_SERIAL_IN_LEN - 1)
+		else if (charRead == '\n')
+		{
+			serialRecvDone = true;
+			break;
+			Serial.println("done");
+		}
+		else if (espSerialRecvBufferIdx < ESP_SERIAL_IN_LEN - 1)
 		{
 			espSerialRecvBuffer[espSerialRecvBufferIdx] = charRead;
 			espSerialRecvBufferIdx++;
 			espSerialRecvBuffer[espSerialRecvBufferIdx] = '\0';
+		}
+	}
+
+	if (serialRecvDone)
+	{
+		if (strncmp(espSerialRecvBuffer, "settarget=", 10) == 0)
+		{
+			Serial.println("In set target");
+			int numFirstChar = espSerialRecvBuffer[10] - '0';
+			int numSecondChar = espSerialRecvBuffer[11] - '0';
+			int newTemperature = 10 * numFirstChar + numSecondChar;
+			setTempTarget(newTemperature);
+			printTargetToLcd();
+			
+			espSerialRecvBufferIdx = 0;
+			serialRecvDone = false;
 		}
 	}
 

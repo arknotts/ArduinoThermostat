@@ -65,6 +65,7 @@ RunningAverage tempRunningAvg(RUNNING_AVG_LENGTH);
 SoftwareSerial esp8266(WIFI_RX_PIN, WIFI_TX_PIN);
 
 unsigned char tempTarget = 0;
+unsigned char tempTargetOvershootBy = 0;
 bool forceFanOn = false;
 bool wifiConnected = false;
 bool serialRecvDone = false;
@@ -306,6 +307,9 @@ void startFurnace() {
 		&& !isRunning //don't start if it's already running
 		&& millis() >= dontRunAgainUntilTime) //don't start if it's before the safe delay
 	{ 
+		//calculate overshoot temp
+		tempTargetOvershootBy = min(tempTarget - tempRunningAvg.getAverage(), maxOvershootTemp);
+
 		//turn on furnace
 		digitalWrite(furnaceTriggerPin, LOW); //relay is triggered on low signal
 		isRunning = true;
@@ -319,6 +323,9 @@ void stopFurnace() {
 	if (isRunning //only try to stop of it's running
 		&& millis() > dontStopUntilTime) //make sure it's not trying to stop within the short cycle delay
 	{
+		//reset overshoot temp
+		tempTargetOvershootBy = 0;
+
 		//stop furnace
 		digitalWrite(furnaceTriggerPin, HIGH);
 		isRunning = false;
@@ -387,6 +394,8 @@ void checkInputs()
 
 void setup() {
 	Serial.begin(115200);
+
+	delay(2000); //give esp time to boot up
 	esp8266.begin(9600);
 
 	sensors.begin();
@@ -471,12 +480,17 @@ void loop() {
 			Serial.println("In set target");
 			int numFirstChar = espSerialRecvBuffer[10] - '0';
 			int numSecondChar = espSerialRecvBuffer[11] - '0';
+			//int numThirdChar = espSerialRecvBuffer[12] - '0';
 			int newTemperature = 10 * numFirstChar + numSecondChar;
 			setTempTarget(newTemperature);
 			printTargetToLcd();
 			
 			espSerialRecvBufferIdx = 0;
 			serialRecvDone = false;
+		}
+		else if (strncmp(espSerialRecvBuffer, "thermostat/target", 10) == 0)
+		{
+
 		}
 	}
 
@@ -510,7 +524,7 @@ void loop() {
 			}
 			startFurnace();
 		}
-		else if(currAvg >= tempTarget + 0.4) //we've reached the target!
+		else if(currAvg >= tempTarget + tempTargetOvershootBy) //we've reached the target (plus the overshoot temp)!
 		{
 			stopFurnace();
 		}

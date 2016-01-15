@@ -77,7 +77,7 @@ unsigned long dontRunAgainUntilTime;
 unsigned long lastCheckWifiTime;
 unsigned long tempLogTime;
 unsigned long lastTempLogTime;
-unsigned int ESP_SERIAL_IN_LEN = 20;
+unsigned int ESP_SERIAL_IN_LEN = 30;
 char* espSerialRecvBuffer = new char[ESP_SERIAL_IN_LEN];
 int espSerialRecvBufferIdx = 0;
 bool isRunning;
@@ -446,8 +446,8 @@ void setup() {
 	checkWifi();
 }
 
-void loop() {
-
+void checkSerial()
+{
 	char charRead;
 	while (esp8266.available() > 0)
 	{
@@ -475,36 +475,42 @@ void loop() {
 
 	if (serialRecvDone)
 	{
-		if (strncmp(espSerialRecvBuffer, "settarget=", 10) == 0)
+		if (strncmp(espSerialRecvBuffer, "thermostat/target=", 18) == 0)
 		{
-			Serial.println("In set target");
-			int numFirstChar = espSerialRecvBuffer[10] - '0';
-			int numSecondChar = espSerialRecvBuffer[11] - '0';
-			//int numThirdChar = espSerialRecvBuffer[12] - '0';
-			int newTemperature = 10 * numFirstChar + numSecondChar;
-			setTempTarget(newTemperature);
-			printTargetToLcd();
-			
-			espSerialRecvBufferIdx = 0;
-			serialRecvDone = false;
-		}
-		else if (strncmp(espSerialRecvBuffer, "thermostat/target", 10) == 0)
-		{
+			char* val = new char[3];
+			val[0] = espSerialRecvBuffer[18];
+			val[1] = espSerialRecvBuffer[19];
+			val[2] = espSerialRecvBuffer[20];
 
+			if (strncmp(val, "get", 3) == 0)
+			{
+				char* targetAsStr = new char[2];
+
+				itoa(tempTarget, targetAsStr, 10);
+				//something is requesting the target val, publish it out
+				publishEvent("thermostat/target", targetAsStr);
+
+				free(targetAsStr);
+			}
+			else
+			{
+				int numFirstChar = espSerialRecvBuffer[10] - '0';
+				int numSecondChar = espSerialRecvBuffer[11] - '0';
+				int newTemperature = 10 * numFirstChar + numSecondChar;
+				setTempTarget(newTemperature);
+				printTargetToLcd();
+
+				espSerialRecvBufferIdx = 0;
+				serialRecvDone = false;
+			}
+			free(val);
 		}
 	}
+}
 
-	/*if (esp8266.available() > 0)
-	{
-		Serial.print("ESP OUTPUT/");
-		Serial.print(millis());
-		Serial.print("/");
-		while (esp8266.available() > 0)
-		{
-			Serial.write(esp8266.read());
-		}
-		Serial.println("/END ESP OUTPUT");
-	}*/
+void loop() {
+
+	checkSerial();
 
 	time = millis();
 

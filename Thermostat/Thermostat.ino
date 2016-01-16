@@ -119,25 +119,25 @@ void setTempTarget(unsigned char temp)
 
 void checkWifi()
 {
-	char returnChar;
-	//espReadAll(false); //clear any buffered chars and start fresh
-	esp8266.println("print(wifi.sta.status())");
-	delay(500);
-	if (esp8266.available() > 0)
-	{
-		returnChar = esp8266.read();
-		if (returnChar == '5')
-		{
-			
-			wifiConnected = true;
-		}
-		else
-		{
-			wifiConnected = false;
-		}
-	}
+	//char returnChar;
+	////espReadAll(false); //clear any buffered chars and start fresh
+	//esp8266.println("print(wifi.sta.status())");
+	//delay(500);
+	//if (esp8266.available() > 0)
+	//{
+	//	returnChar = esp8266.read();
+	//	if (returnChar == '5')
+	//	{
+	//		
+	//		wifiConnected = true;
+	//	}
+	//	else
+	//	{
+	//		wifiConnected = false;
+	//	}
+	//}
 
-	printWifiStatus();
+	//printWifiStatus();
 }
 
 void setupWifi()
@@ -399,6 +399,8 @@ void setup() {
 	delay(2000); //give esp time to boot up
 	esp8266.begin(9600);
 
+	esp8266.println("node.restart()");
+
 	sensors.begin();
 
 
@@ -476,6 +478,8 @@ void checkSerial()
 
 	if (serialRecvDone)
 	{
+		Serial.print("Serial recv done: ");
+		Serial.println(espSerialRecvBuffer);
 		if (strncmp(espSerialRecvBuffer, "thermostat/target=", 18) == 0)
 		{
 			char* val = new char[3];
@@ -509,13 +513,17 @@ void checkSerial()
 		else if (strncmp(espSerialRecvBuffer, "thermostat/fan=", 15) == 0)
 		{
 			char* val = new char[4];
-			val[0] = espSerialRecvBuffer[18];
-			val[1] = espSerialRecvBuffer[19];
-			val[2] = espSerialRecvBuffer[20];
-			val[3] = espSerialRecvBuffer[21];
+			val[0] = espSerialRecvBuffer[15];
+			val[1] = espSerialRecvBuffer[16];
+			val[2] = espSerialRecvBuffer[17];
+			val[3] = espSerialRecvBuffer[18];
+
+			Serial.print("got message:");
+			Serial.println(val);
 
 			if (strncmp(val, "req", 3) == 0)
 			{
+				Serial.println("requesting");
 				//something is requesting the fan val, publish it out
 				if (forceFanOn)
 				{
@@ -528,10 +536,12 @@ void checkSerial()
 			}
 			else if(strncmp(val, "on", 2) == 0)
 			{
+				Serial.println("on");
 				startFan();
 			}
 			else if (strncmp(val, "auto", 4) == 0)
 			{
+				Serial.println("auto");
 				stopFan();
 			}
 

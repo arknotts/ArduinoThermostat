@@ -337,11 +337,13 @@ void stopFurnace() {
 void startFan()
 {
 	digitalWrite(fanTriggerPin, LOW); //relay is triggered on low signal
+	printFanButton();
 }
 
 void stopFan()
 {
 	digitalWrite(fanTriggerPin, HIGH); //relay is triggered on low signal
+	printFanButton();
 }
 
 void checkInputs()
@@ -380,7 +382,6 @@ void checkInputs()
 			{
 				stopFan();
 			}
-			printFanButton();
 		}
 
 		lastTouchMillis = millis();
@@ -482,29 +483,65 @@ void checkSerial()
 			val[1] = espSerialRecvBuffer[19];
 			val[2] = espSerialRecvBuffer[20];
 
-			if (strncmp(val, "get", 3) == 0)
+			if (strncmp(val, "req", 3) == 0)
 			{
 				char* targetAsStr = new char[2];
-
 				itoa(tempTarget, targetAsStr, 10);
+
 				//something is requesting the target val, publish it out
 				publishEvent("thermostat/target", targetAsStr);
 
+				//free allocated memory
 				free(targetAsStr);
 			}
 			else
 			{
-				int numFirstChar = espSerialRecvBuffer[10] - '0';
-				int numSecondChar = espSerialRecvBuffer[11] - '0';
+				int numFirstChar = val[0] - '0';
+				int numSecondChar = val[1] - '0';
 				int newTemperature = 10 * numFirstChar + numSecondChar;
 				setTempTarget(newTemperature);
 				printTargetToLcd();
-
-				espSerialRecvBufferIdx = 0;
-				serialRecvDone = false;
 			}
+
+			//free allocated memory
 			free(val);
 		}
+		else if (strncmp(espSerialRecvBuffer, "thermostat/fan=", 15) == 0)
+		{
+			char* val = new char[4];
+			val[0] = espSerialRecvBuffer[18];
+			val[1] = espSerialRecvBuffer[19];
+			val[2] = espSerialRecvBuffer[20];
+			val[3] = espSerialRecvBuffer[21];
+
+			if (strncmp(val, "req", 3) == 0)
+			{
+				//something is requesting the fan val, publish it out
+				if (forceFanOn)
+				{
+					publishEvent("thermostat/fan", "on");
+				}
+				else
+				{
+					publishEvent("thermostat/fan", "off");
+				}
+			}
+			else if(strncmp(val, "on", 2) == 0)
+			{
+				startFan();
+			}
+			else if (strncmp(val, "auto", 4) == 0)
+			{
+				stopFan();
+			}
+
+			//free allocated memory
+			free(val);
+		}
+
+		//reset serial receive buffer
+		espSerialRecvBufferIdx = 0;
+		serialRecvDone = false;
 	}
 }
 

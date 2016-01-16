@@ -531,7 +531,7 @@ void checkSerial()
 				}
 				else
 				{
-					publishEvent("thermostat/fan", "off");
+					publishEvent("thermostat/fan", "auto");
 				}
 			}
 			else if(strncmp(val, "on", 2) == 0)

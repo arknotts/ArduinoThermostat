@@ -65,6 +65,8 @@ RunningAverage tempRunningAvg(RUNNING_AVG_LENGTH);
 SoftwareSerial esp8266(WIFI_RX_PIN, WIFI_TX_PIN);
 
 unsigned char tempTarget = 0;
+unsigned char newTempTarget = 0;
+unsigned long setNewTempTargetTime;
 unsigned char tempTargetOvershootBy = 0;
 bool forceFanOn = false;
 bool wifiConnected = false;
@@ -77,7 +79,7 @@ unsigned long dontRunAgainUntilTime;
 unsigned long lastCheckWifiTime;
 unsigned long tempLogTime;
 unsigned long lastTempLogTime;
-unsigned int ESP_SERIAL_IN_LEN = 30;
+unsigned int ESP_SERIAL_IN_LEN = 40;
 char* espSerialRecvBuffer = new char[ESP_SERIAL_IN_LEN];
 int espSerialRecvBufferIdx = 0;
 bool isRunning;
@@ -89,11 +91,22 @@ bool isRunning;
 //	return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 //}
 
-void setTempTarget(unsigned char temp)
+void setTempTarget(unsigned char temp, bool doPublishEvent)
 {
 	if (temp > 55 && temp < 75)
 	{
 		tempTarget = temp;
+		newTempTarget = temp;
+
+		if (doPublishEvent)
+		{
+			String strTemp = "";
+			strTemp += temp;
+			publishEvent("thermostat/target", strTemp.c_str());
+		}
+
+		dontRunAgainUntilTime = millis(); //start right away, even if we haven't waited long enough
+		setNewTempTargetTime = 4294967295;
 	}
 }
 
@@ -197,7 +210,7 @@ bool logFurnaceEvent(char* value)
 	publishEvent("thermostat/furnace", value);
 }
 
-bool logTemperature()
+bool publishTemperature()
 {
 	String payload = "";
 	payload += tempRunningAvg.getAverage();
@@ -238,7 +251,7 @@ void printTargetToLcd() {
 	int y = sh / 2 - 25;
 	tft.fillRect(x, y, 75, 45, ILI9341_BLACK);
 	tft.setCursor(x, y); tft.setTextSize(6); tft.setTextColor(ILI9341_GREENYELLOW);
-	tft.print(tempTarget);
+	tft.print(newTempTarget);
 }
 
 void printAvgTempToLcd(float avg) {
@@ -363,12 +376,14 @@ void checkInputs()
 
 		if (x > TEMP_UP_X && x < TEMP_UP_X + TEMP_BUTTON_WIDTH && y > TEMP_UP_Y && y < TEMP_UP_Y + TEMP_BUTTON_HEIGHT)
 		{
-			setTempTarget(tempTarget + 1);
+			newTempTarget = newTempTarget + 1;
+			setNewTempTargetTime = millis() + TEMP_TARGET_LAG;
 			printTargetToLcd();
 		}
 		else if (x > TEMP_DOWN_X && x < TEMP_DOWN_X + TEMP_BUTTON_WIDTH && y > TEMP_DOWN_Y && y < TEMP_DOWN_Y + TEMP_BUTTON_HEIGHT)
 		{
-			setTempTarget(tempTarget - 1);
+			newTempTarget = newTempTarget - 1;
+			setNewTempTargetTime = millis() + TEMP_TARGET_LAG;
 			printTargetToLcd();
 		}
 		else if (x > FAN_BUTTON_X && x < FAN_BUTTON_X + FAN_BUTTON_WIDTH && y > FAN_BUTTON_Y && y < FAN_BUTTON_Y + FAN_BUTTON_HEIGHT)
@@ -412,6 +427,7 @@ void setup() {
 	lastTouchMillis = millis();
 	lastCheckWifiTime = millis();
 	lastTempLogTime = millis();
+	setNewTempTargetTime = 4294967295;
 
 	//start touchscreen
 	ts.begin();
@@ -434,7 +450,7 @@ void setup() {
 	digitalWrite(fanTriggerPin, HIGH);
 
 	//initialize variables
-	tempTarget = 65;
+	tempTarget = newTempTarget = 65;
 	tempRunningAvg.clear();
 	forceShutoffTime = 4294967295; //default to max long
 	dontRunAgainUntilTime = 0;
@@ -455,18 +471,16 @@ void checkSerial()
 	while (esp8266.available() > 0)
 	{
 		charRead = esp8266.read();
-		Serial.print(charRead);
 
 		if (charRead == '|')
 		{
 			espSerialRecvBufferIdx = 0;
 			serialRecvDone = false;
 		}
-		else if (charRead == '\n')
+		else if (charRead == '\r')
 		{
 			serialRecvDone = true;
 			break;
-			Serial.println("done");
 		}
 		else if (espSerialRecvBufferIdx < ESP_SERIAL_IN_LEN - 1)
 		{
@@ -478,8 +492,9 @@ void checkSerial()
 
 	if (serialRecvDone)
 	{
-		Serial.print("Serial recv done: ");
-		Serial.println(espSerialRecvBuffer);
+		Serial.print("recv:^");
+		Serial.print(espSerialRecvBuffer);
+		Serial.println("$");
 		if (strncmp(espSerialRecvBuffer, "thermostat/target=", 18) == 0)
 		{
 			char* val = new char[3];
@@ -503,7 +518,7 @@ void checkSerial()
 				int numFirstChar = val[0] - '0';
 				int numSecondChar = val[1] - '0';
 				int newTemperature = 10 * numFirstChar + numSecondChar;
-				setTempTarget(newTemperature);
+				setTempTarget(newTemperature, false);
 				printTargetToLcd();
 			}
 
@@ -518,12 +533,8 @@ void checkSerial()
 			val[2] = espSerialRecvBuffer[17];
 			val[3] = espSerialRecvBuffer[18];
 
-			Serial.print("got message:");
-			Serial.println(val);
-
 			if (strncmp(val, "req", 3) == 0)
 			{
-				Serial.println("requesting");
 				//something is requesting the fan val, publish it out
 				if (forceFanOn)
 				{
@@ -536,13 +547,26 @@ void checkSerial()
 			}
 			else if(strncmp(val, "on", 2) == 0)
 			{
-				Serial.println("on");
 				startFan();
 			}
 			else if (strncmp(val, "auto", 4) == 0)
 			{
-				Serial.println("auto");
 				stopFan();
+			}
+
+			//free allocated memory
+			free(val);
+		}
+		else if (strncmp(espSerialRecvBuffer, "sensors/temperature/thermostat=", 31) == 0)
+		{
+			char* val = new char[3];
+			val[0] = espSerialRecvBuffer[31];
+			val[1] = espSerialRecvBuffer[32];
+			val[2] = espSerialRecvBuffer[33];
+
+			if (strncmp(val, "req", 3) == 0)
+			{
+				publishTemperature();
 			}
 
 			//free allocated memory
@@ -594,8 +618,13 @@ void loop() {
 
 	if (time - lastTempLogTime > TEMP_LOG_PERIOD)
 	{
-		logTemperature();
+		publishTemperature();
 		lastTempLogTime = time;
+	}
+
+	if (time > setNewTempTargetTime)
+	{
+		setTempTarget(newTempTarget, true);
 	}
 
 	checkInputs();

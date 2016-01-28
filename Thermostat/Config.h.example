@@ -7,6 +7,7 @@ const long minRunTime = 60000; //min 1 minute run time
 const int RUNNING_AVG_LENGTH = 10;
 const int TEMP_READ_DELAY = 500;
 const long TEMP_LOG_PERIOD = 5000; //5 mins
+const int TEMP_TARGET_LAG = 3000; //how long to wait after pressing target up/down to trigger the new target	
 const int WIFI_RX_PIN = 2;
 const int WIFI_TX_PIN = 3;
 const char* WIFI_SSID = "[YOUR SSID]";

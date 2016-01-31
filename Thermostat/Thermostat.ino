@@ -62,7 +62,7 @@ int sh;
 unsigned long lastTouchMillis;
 
 RunningAverage tempRunningAvg(RUNNING_AVG_LENGTH);
-SoftwareSerial esp8266(WIFI_RX_PIN, WIFI_TX_PIN);
+//SoftwareSerial esp8266(WIFI_RX_PIN, WIFI_TX_PIN);
 
 unsigned char tempTarget = 0;
 unsigned char newTempTarget = 0;
@@ -79,7 +79,7 @@ unsigned long dontRunAgainUntilTime;
 unsigned long lastCheckWifiTime;
 unsigned long tempLogTime;
 unsigned long lastTempLogTime;
-unsigned int ESP_SERIAL_IN_LEN = 40;
+unsigned int ESP_SERIAL_IN_LEN = 100;
 char* espSerialRecvBuffer = new char[ESP_SERIAL_IN_LEN];
 int espSerialRecvBufferIdx = 0;
 bool isRunning;
@@ -156,20 +156,20 @@ void checkWifi()
 void setupWifi()
 {
 	//turn echo off
-	esp8266.println("uart.setup(0,9600,8,0,1,0)");
-	esp8266.find('>');
+	Serial.println("uart.setup(0,9600,8,0,1,0)");
+	Serial.find('>');
 
 	//set station mode
-	esp8266.println("wifi.setmode(wifi.STATION)");
-	esp8266.find('>');
+	Serial.println("wifi.setmode(wifi.STATION)");
+	Serial.find('>');
 
 	//set ssid and password
-	esp8266.print("wifi.sta.config(\"");
-	esp8266.print(WIFI_SSID);
-	esp8266.print("\", \"");
-	esp8266.print(WIFI_PASSWORD);
-	esp8266.println("\")");
-	esp8266.find('>');
+	Serial.print("wifi.sta.config(\"");
+	Serial.print(WIFI_SSID);
+	Serial.print("\", \"");
+	Serial.print(WIFI_PASSWORD);
+	Serial.println("\")");
+	Serial.find('>');
 }
 
 //void espReadAll(bool printToSerial)
@@ -188,12 +188,12 @@ void setupWifi()
 
 bool publishEvent(const char* topic, const char* value)
 {
-	esp8266.print("publish(\"");
-	esp8266.print(topic);
-	esp8266.print("\", \"");
-	esp8266.print(value);
-	esp8266.println("\")");
-	esp8266.find('>');
+	Serial.print("publish(\"");
+	Serial.print(topic);
+	Serial.print("\", \"");
+	Serial.print(value);
+	Serial.println("\")");
+	Serial.find('>');
 
 	return true;
 }
@@ -409,12 +409,12 @@ void checkInputs()
 }
 
 void setup() {
-	Serial.begin(115200);
-
+	Serial.begin(9600);
+	
 	delay(2000); //give esp time to boot up
-	esp8266.begin(9600);
+	//esp8266.begin(9600);
 
-	esp8266.println("node.restart()");
+	Serial.println("node.restart()");
 
 	sensors.begin();
 
@@ -468,9 +468,9 @@ void setup() {
 void checkSerial()
 {
 	char charRead;
-	while (esp8266.available() > 0)
+	while (Serial.available() > 0)
 	{
-		charRead = esp8266.read();
+		charRead = Serial.read();
 
 		if (charRead == '|')
 		{
@@ -492,9 +492,9 @@ void checkSerial()
 
 	if (serialRecvDone)
 	{
-		Serial.print("recv:^");
+		/*Serial.print("recv:^");
 		Serial.print(espSerialRecvBuffer);
-		Serial.println("$");
+		Serial.println("$");*/
 		if (strncmp(espSerialRecvBuffer, "thermostat/target=", 18) == 0)
 		{
 			char* val = new char[3];

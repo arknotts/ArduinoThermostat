@@ -17,6 +17,7 @@
 #include "RunningAverage.h"
 #include "Config.h"
 #include <SoftwareSerial.h>
+#include <QueueList.h>
 
 // For the Adafruit shield, these are the default.
 #define TFT_DC 9
@@ -79,6 +80,8 @@ unsigned long dontRunAgainUntilTime;
 unsigned long lastCheckWifiTime;
 unsigned long tempLogTime;
 unsigned long lastTempLogTime;
+QueueList <String> espSerialQueue;
+String espSerialTmp = "";
 unsigned int ESP_SERIAL_IN_LEN = 100;
 char* espSerialRecvBuffer = new char[ESP_SERIAL_IN_LEN];
 int espSerialRecvBufferIdx = 0;

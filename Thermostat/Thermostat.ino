@@ -477,35 +477,31 @@ void checkSerial()
 
 		if (charRead == '|')
 		{
-			espSerialRecvBufferIdx = 0;
-			serialRecvDone = false;
+			espSerialTmp = "";
 		}
 		else if (charRead == '\r')
 		{
-			serialRecvDone = true;
-			break;
+			espSerialQueue.push(espSerialTmp);
 		}
-		else if (espSerialRecvBufferIdx < ESP_SERIAL_IN_LEN - 1)
+		else
 		{
-			espSerialRecvBuffer[espSerialRecvBufferIdx] = charRead;
-			espSerialRecvBufferIdx++;
-			espSerialRecvBuffer[espSerialRecvBufferIdx] = '\0';
+			espSerialTmp += charRead;
 		}
 	}
 
-	if (serialRecvDone)
+	if (espSerialQueue.count() > 0)
 	{
 		/*Serial.print("recv:^");
 		Serial.print(espSerialRecvBuffer);
 		Serial.println("$");*/
-		if (strncmp(espSerialRecvBuffer, "thermostat/target=", 18) == 0)
-		{
-			char* val = new char[3];
-			val[0] = espSerialRecvBuffer[18];
-			val[1] = espSerialRecvBuffer[19];
-			val[2] = espSerialRecvBuffer[20];
+		
+		String espMessage = espSerialQueue.pop();
 
-			if (strncmp(val, "req", 3) == 0)
+		if (espMessage.startsWith("thermostat/target="))
+		{
+			String val = espMessage.substring(espMessage.indexOf("=") + 1);
+
+			if (val == "req")
 			{
 				char* targetAsStr = new char[2];
 				itoa(tempTarget, targetAsStr, 10);
@@ -526,17 +522,13 @@ void checkSerial()
 			}
 
 			//free allocated memory
-			free(val);
+			//free(val);
 		}
-		else if (strncmp(espSerialRecvBuffer, "thermostat/fan=", 15) == 0)
+		else if (espMessage.startsWith("thermostat/fan="))
 		{
-			char* val = new char[4];
-			val[0] = espSerialRecvBuffer[15];
-			val[1] = espSerialRecvBuffer[16];
-			val[2] = espSerialRecvBuffer[17];
-			val[3] = espSerialRecvBuffer[18];
+			String val = espMessage.substring(espMessage.indexOf("=") + 1);
 
-			if (strncmp(val, "req", 3) == 0)
+			if (val == "req")
 			{
 				//something is requesting the fan val, publish it out
 				if (forceFanOn)
@@ -548,37 +540,34 @@ void checkSerial()
 					publishEvent("thermostat/fan", "auto");
 				}
 			}
-			else if(strncmp(val, "on", 2) == 0)
+			else if(val == "on")
 			{
 				startFan();
 			}
-			else if (strncmp(val, "auto", 4) == 0)
+			else if (val == "auto")
 			{
 				stopFan();
 			}
 
 			//free allocated memory
-			free(val);
+			//free(val);
 		}
-		else if (strncmp(espSerialRecvBuffer, "sensors/temperature/thermostat=", 31) == 0)
+		else if (espMessage.startsWith("sensors/temperature/thermostat="))
 		{
-			char* val = new char[3];
-			val[0] = espSerialRecvBuffer[31];
-			val[1] = espSerialRecvBuffer[32];
-			val[2] = espSerialRecvBuffer[33];
+			String val = espMessage.substring(espMessage.indexOf("=") + 1);
 
-			if (strncmp(val, "req", 3) == 0)
+			if (val == "req")
 			{
 				publishTemperature();
 			}
 
 			//free allocated memory
-			free(val);
+			//free(val);
 		}
 
 		//reset serial receive buffer
-		espSerialRecvBufferIdx = 0;
-		serialRecvDone = false;
+		//espSerialRecvBufferIdx = 0;
+		//serialRecvDone = false;
 	}
 }
 
@@ -595,8 +584,9 @@ void loop() {
 		float currAvg = tempRunningAvg.getAverage();
 
 		printAvgTempToLcd(currAvg);
+		bool errorCondition = currAvg < 0;
 
-		if (currAvg < tempTarget - 1) {
+		if (currAvg < tempTarget - 1 && !errorCondition) { //if less than 0 we may have lost contact with the sensor, don't let it get stuck on
 			if (millis() > forceShutoffTime) {
 				//force stop if it's been on for too long (something might be wrong)
 				//TODO alert via wifi that it's hit the force shutoff time
@@ -604,7 +594,7 @@ void loop() {
 			}
 			startFurnace();
 		}
-		else if(currAvg >= tempTarget + tempTargetOvershootBy) //we've reached the target (plus the overshoot temp)!
+		else if(currAvg >= tempTarget + tempTargetOvershootBy || errorCondition) //we've reached the target (plus the overshoot temp)!
 		{
 			stopFurnace();
 		}

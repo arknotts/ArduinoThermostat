@@ -48,6 +48,9 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 
 #define TOUCH_DELAY 120
 
+#define MODE_HEATING 1
+#define MODE_COOLING 2
+
 ///////// ds18b20 /////////
 /*-----( Declare Constants )-----*/
 #define ONE_WIRE_BUS 7 /*-(Connect to Pin 2 )-*/
@@ -65,6 +68,7 @@ unsigned long lastTouchMillis;
 RunningAverage tempRunningAvg(RUNNING_AVG_LENGTH);
 //SoftwareSerial esp8266(WIFI_RX_PIN, WIFI_TX_PIN);
 
+unsigned short mode = MODE_HEATING;
 unsigned char tempTarget = 0;
 unsigned char newTempTarget = 0;
 unsigned long setNewTempTargetTime;
@@ -203,14 +207,12 @@ bool publishEvent(const char* topic, const char* value)
 
 bool logFurnaceEvent(char* value)
 {
-	/*String payload = "a=";
-	payload = payload + action;
-	payload = payload + "&v=";
-	payload = payload + value;
-	payload = payload + "&authKey=";
-	payload = payload + WIFI_AUTHKEY;*/
-
 	publishEvent("thermostat/furnace", value);
+}
+
+bool logACEvent(char* value)
+{
+	publishEvent("thermostat/ac", value);
 }
 
 bool publishTemperature()
@@ -350,6 +352,38 @@ void stopFurnace() {
 	}
 }
 
+void startAC() {
+	if (tempRunningAvg.getCount() >= RUNNING_AVG_LENGTH //don't start until our running average is full (could be inaccurate otherwise)
+		&& !isRunning //don't start if it's already running
+		&& millis() >= dontRunAgainUntilTime) //don't start if it's before the safe delay
+	{
+		//calculate overshoot temp
+		tempTargetOvershootBy = min(abs(tempTarget - tempRunningAvg.getAverage()), maxOvershootTemp);
+
+		//turn on furnace
+		digitalWrite(acTriggerPin, LOW); //relay is triggered on low signal
+		isRunning = true;
+		dontStopUntilTime = millis() + minRunTime;
+		forceShutoffTime = millis() + maxRunTime;
+		logACEvent("On");
+	}
+}
+
+void stopAC() {
+	if (isRunning //only try to stop of it's running
+		&& millis() > dontStopUntilTime) //make sure it's not trying to stop within the short cycle delay
+	{
+		//reset overshoot temp
+		tempTargetOvershootBy = 0;
+
+		//stop furnace
+		digitalWrite(acTriggerPin, HIGH);
+		isRunning = false;
+		dontRunAgainUntilTime = millis() + shortCycleDelay;
+		logACEvent("Off");
+	}
+}
+
 void startFan()
 {
 	digitalWrite(fanTriggerPin, LOW); //relay is triggered on low signal
@@ -453,7 +487,12 @@ void setup() {
 	digitalWrite(fanTriggerPin, HIGH);
 
 	//initialize variables
-	tempTarget = newTempTarget = 65;
+	if (mode == MODE_HEATING) {
+		tempTarget = newTempTarget = 65;
+	}
+	else if (mode == MODE_COOLING) {
+		tempTarget = newTempTarget = 74;
+	}
 	tempRunningAvg.clear();
 	forceShutoffTime = 4294967295; //default to max long
 	dontRunAgainUntilTime = 0;
@@ -586,17 +625,33 @@ void loop() {
 		printAvgTempToLcd(currAvg);
 		bool errorCondition = currAvg < 0;
 
-		if (currAvg < tempTarget - 1 && !errorCondition) { //if less than 0 we may have lost contact with the sensor, don't let it get stuck on
-			if (millis() > forceShutoffTime) {
-				//force stop if it's been on for too long (something might be wrong)
-				//TODO alert via wifi that it's hit the force shutoff time
+		if (mode == MODE_HEATING) {
+			if (currAvg < tempTarget - 1 && !errorCondition) { //if less than 0 we may have lost contact with the sensor, don't let it get stuck on
+				if (millis() > forceShutoffTime) {
+					//force stop if it's been on for too long (something might be wrong)
+					//TODO alert via wifi that it's hit the force shutoff time
+					stopFurnace();
+				}
+				startFurnace();
+			}
+			else if (currAvg >= tempTarget + tempTargetOvershootBy || errorCondition) //we've reached the target (plus the overshoot temp)!
+			{
 				stopFurnace();
 			}
-			startFurnace();
 		}
-		else if(currAvg >= tempTarget + tempTargetOvershootBy || errorCondition) //we've reached the target (plus the overshoot temp)!
-		{
-			stopFurnace();
+		else if (mode == MODE_COOLING) {
+			if (currAvg > tempTarget + 1 && !errorCondition) {
+				if (millis() > forceShutoffTime) {
+					//force stop if it's been on for too long (something might be wrong)
+					//TODO alert via wifi that it's hit the force shutoff time
+					stopAC();
+				}
+				startAC();
+			}
+			else if (currAvg <= tempTarget - tempTargetOvershootBy || errorCondition) //we've reached the target (plus the overshoot temp)!
+			{
+				stopAC();
+			}
 		}
 		
 		//store previous time
